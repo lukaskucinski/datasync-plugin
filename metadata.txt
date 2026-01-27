@@ -1,0 +1,22 @@
+[general]
+name=DataSync
+qgisMinimumVersion=3.0
+description=Bulk-import Excel updates into PostgreSQL/PostGIS databases with preview and column mapping
+version=1.0.0
+author=Lukas Kucinski
+email=lukas@example.com
+about=DataSync allows you to synchronize data between Excel files and PostgreSQL databases. Features include:
+    - Use existing QGIS PostgreSQL connections
+    - Configurable column mapping via UI
+    - Preview mode showing changes before committing
+    - Transaction-based updates with rollback on error
+    - Color-coded diff view (green=add, orange=update)
+tracker=https://github.com/lukaskucinski/datasync-plugin/issues
+repository=https://github.com/lukaskucinski/datasync-plugin
+tags=excel,postgresql,sync,import,database
+homepage=https://github.com/lukaskucinski/datasync-plugin
+category=Database
+icon=icon.png
+experimental=False
+deprecated=False
+changelog=1.0.0 - Initial release
