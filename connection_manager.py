@@ -9,6 +9,21 @@ from qgis.PyQt.QtCore import QSettings
 class ConnectionManager:
     """Manages PostgreSQL database connections using QGIS stored connections."""
 
+    SSL_MODE_MAP = {
+        'SslDisable': 'disable',
+        'SslAllow': 'allow',
+        'SslPrefer': 'prefer',
+        'SslRequire': 'require',
+        'SslVerifyCa': 'verify-ca',
+        'SslVerifyFull': 'verify-full',
+        'disable': 'disable',
+        'allow': 'allow',
+        'prefer': 'prefer',
+        'require': 'require',
+        'verify-ca': 'verify-ca',
+        'verify-full': 'verify-full',
+    }
+
     def __init__(self):
         self.connection = None
         self.current_conn_name = None
@@ -84,8 +99,9 @@ class ConnectionManager:
             f"password='{params['password']}'"
         )
 
-        if params.get('sslmode') and params['sslmode'] != 'disable':
-            conn_string += f" sslmode='{params['sslmode']}'"
+        sslmode = self.SSL_MODE_MAP.get(params.get('sslmode', ''), 'prefer')
+        if sslmode and sslmode != 'disable':
+            conn_string += f" sslmode='{sslmode}'"
 
         self.connection = psycopg2.connect(conn_string)
         self.current_conn_name = conn_name
