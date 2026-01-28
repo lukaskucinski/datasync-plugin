@@ -205,20 +205,26 @@ class SyncEngine(QObject):
         """Get summary of changes.
 
         :param diff_data: Diff data from generate_diff()
-        :return: Dictionary with counts
+        :return: Dictionary with row and value counts
         """
-        counts = {
+        rows = {
             'skipped': 0,
             'modified': 0,
             'unchanged': 0
         }
+        values = {
+            'skipped': 0,
+            'modified': 0
+        }
 
         for item in diff_data:
             if item['change_type'] == SKIPPED:
-                counts['skipped'] += 1
+                rows['skipped'] += 1
+                values['skipped'] += len(item.get('excel_values', {}))
             elif item['change_type'] == MODIFIED:
-                counts['modified'] += 1
+                rows['modified'] += 1
+                values['modified'] += len(item.get('changes', {}))
             else:
-                counts['unchanged'] += 1
+                rows['unchanged'] += 1
 
-        return counts
+        return {'rows': rows, 'values': values}

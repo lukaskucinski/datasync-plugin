@@ -499,14 +499,18 @@ class DataSyncDialog(QDialog, FORM_CLASS):
 
             # Update summary
             summary = self.sync_engine.get_change_summary(self.diff_data)
+            rows = summary['rows']
+            values = summary['values']
             self.labelSummary.setText(
-                f"<b>{summary['modified']}</b> to update, "
-                f"<b>{summary['skipped']}</b> skipped (not in DB), "
-                f"<b>{summary['unchanged']}</b> unchanged"
+                f"Rows: <b>{rows['modified']}</b> to update, "
+                f"<b>{rows['skipped']}</b> skipped (not in DB), "
+                f"<b>{rows['unchanged']}</b> unchanged.<br>"
+                f"Values: <b>{values['modified']}</b> to update, "
+                f"<b>{values['skipped']}</b> skipped (not in DB)."
             )
 
             # Enable execute if there are changes
-            has_changes = summary['modified'] > 0
+            has_changes = rows['modified'] > 0
             self.buttonBox.button(self.buttonBox.Ok).setEnabled(has_changes)
 
             self.progressBar.setVisible(False)
@@ -523,11 +527,12 @@ class DataSyncDialog(QDialog, FORM_CLASS):
 
         # Confirm execution
         summary = self.sync_engine.get_change_summary(self.diff_data)
+        rows = summary['rows']
         result = QMessageBox.question(
             self,
             "Confirm Sync",
-            f"This will update {summary['modified']} existing records.\n"
-            f"({summary['skipped']} rows skipped - not in DB)\n\n"
+            f"This will update {rows['modified']} existing records.\n"
+            f"({rows['skipped']} rows skipped - not in DB)\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
         )
