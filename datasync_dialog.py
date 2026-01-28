@@ -8,13 +8,15 @@ from qgis.PyQt import uic
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QDialog, QFileDialog, QMessageBox, QWidget,
-    QHBoxLayout, QComboBox, QPushButton, QSizePolicy
+    QHBoxLayout, QComboBox, QPushButton, QSizePolicy,
+    QCompleter, QInputDialog
 )
 
 from .connection_manager import ConnectionManager
 from .excel_reader import ExcelReader
 from .preview_model import PreviewModel
 from .sync_engine import SyncEngine
+from .mapping_store import MappingStore
 
 # Load UI file
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -62,6 +64,7 @@ class DataSyncDialog(QDialog, FORM_CLASS):
         self.preview_model = PreviewModel(self)
         self.sync_engine = None
         self.diff_data = None
+        self.mapping_store = MappingStore()
 
         # Mapping rows storage
         self.mapping_rows = []
@@ -89,6 +92,13 @@ class DataSyncDialog(QDialog, FORM_CLASS):
         self.btnAddMapping.setEnabled(False)
         self.btnPreview.setEnabled(False)
 
+        # Enhancement 1: Make table dropdown searchable
+        self.comboTable.setEditable(True)
+        self.comboTable.setInsertPolicy(QComboBox.NoInsert)
+        completer = self.comboTable.completer()
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setFilterMode(Qt.MatchContains)
+
         # Rename OK button to Execute
         self.buttonBox.button(self.buttonBox.Ok).setText("Execute Sync")
         self.buttonBox.button(self.buttonBox.Ok).setEnabled(False)
@@ -100,6 +110,8 @@ class DataSyncDialog(QDialog, FORM_CLASS):
         self.btnConnect.clicked.connect(self._connect_database)
         self.comboTable.currentIndexChanged.connect(self._table_changed)
         self.btnAddMapping.clicked.connect(self._add_mapping_row)
+        self.btnSaveMapping.clicked.connect(self._save_mapping)
+        self.btnLoadMapping.clicked.connect(self._load_mapping)
         self.btnPreview.clicked.connect(self._generate_preview)
         self.buttonBox.accepted.connect(self._execute_sync)
 
@@ -159,8 +171,9 @@ class DataSyncDialog(QDialog, FORM_CLASS):
             self.comboKeyExcel.addItems(self.excel_columns)
             self.comboKeyExcel.setEnabled(True)
 
-            # Clear existing mappings
+            # Clear existing mappings and auto-populate
             self._clear_mappings()
+            self._auto_populate_mappings()
 
             self._update_ui_state()
             self.labelStatus.setText(f"Sheet '{sheet_name}' loaded - {self.excel_reader.get_row_count()} rows")
@@ -220,8 +233,9 @@ class DataSyncDialog(QDialog, FORM_CLASS):
                 if idx >= 0:
                     self.comboKeyDb.setCurrentIndex(idx)
 
-            # Clear existing mappings
+            # Clear existing mappings and auto-populate
             self._clear_mappings()
+            self._auto_populate_mappings()
 
             self._update_ui_state()
 
@@ -255,6 +269,123 @@ class DataSyncDialog(QDialog, FORM_CLASS):
             self.layoutMappings.removeWidget(row)
             row.deleteLater()
         self.mapping_rows = []
+
+    def _auto_populate_mappings(self):
+        """Auto-create mappings for columns with matching names (case-insensitive)."""
+        if not self.excel_columns or not self.db_columns:
+            return
+
+        db_col_lower = {col.lower(): col for col in self.db_columns}
+
+        for excel_col in self.excel_columns:
+            if excel_col.lower() in db_col_lower:
+                db_col = db_col_lower[excel_col.lower()]
+                row = MappingRow(self.excel_columns, self.db_columns, self)
+                row.btn_remove.clicked.connect(lambda checked, r=row: self._remove_mapping_row(r))
+                row.combo_excel.setCurrentText(excel_col)
+                row.combo_db.setCurrentText(db_col)
+                self.layoutMappings.addWidget(row)
+                self.mapping_rows.append(row)
+
+    def _save_mapping(self):
+        """Save current mapping configuration."""
+        if not self.mapping_rows:
+            QMessageBox.warning(self, "Warning", "No mappings to save")
+            return
+
+        table_data = self.comboTable.currentData()
+        if not table_data:
+            QMessageBox.warning(self, "Warning", "Please select a table first")
+            return
+
+        name, ok = QInputDialog.getText(
+            self, "Save Mapping", "Enter a name for this mapping:"
+        )
+        if not ok or not name.strip():
+            return
+
+        schema, table = table_data
+        full_table = f"{schema}.{table}"
+        key_excel = self.comboKeyExcel.currentText()
+        key_db = self.comboKeyDb.currentText()
+        column_mappings = self._get_column_mapping()
+
+        # Get required columns
+        excel_cols_required = [key_excel] + list(column_mappings.keys())
+        db_cols_required = [key_db] + list(column_mappings.values())
+
+        self.mapping_store.save_mapping(
+            name.strip(),
+            full_table,
+            key_excel,
+            key_db,
+            column_mappings,
+            excel_cols_required,
+            db_cols_required
+        )
+
+        self.labelStatus.setText(f"Mapping '{name.strip()}' saved")
+
+    def _load_mapping(self):
+        """Load a saved mapping configuration."""
+        table_data = self.comboTable.currentData()
+        if not table_data:
+            QMessageBox.warning(self, "Warning", "Please select a table first")
+            return
+
+        schema, table = table_data
+        full_table = f"{schema}.{table}"
+
+        # Get compatible mappings
+        compatible = self.mapping_store.get_compatible_mappings(
+            full_table,
+            self.excel_columns,
+            self.db_columns
+        )
+
+        if not compatible:
+            QMessageBox.information(
+                self, "No Mappings",
+                "No saved mappings are compatible with current Excel/table columns"
+            )
+            return
+
+        # Let user select from compatible mappings
+        name, ok = QInputDialog.getItem(
+            self, "Load Mapping", "Select a mapping:",
+            compatible, 0, False
+        )
+        if not ok or not name:
+            return
+
+        # Load the selected mapping
+        mapping_data = self.mapping_store.load_mapping(name)
+        if not mapping_data:
+            QMessageBox.warning(self, "Error", f"Failed to load mapping '{name}'")
+            return
+
+        # Apply the mapping
+        self._clear_mappings()
+
+        # Set key columns
+        idx = self.comboKeyExcel.findText(mapping_data['key_excel'])
+        if idx >= 0:
+            self.comboKeyExcel.setCurrentIndex(idx)
+        idx = self.comboKeyDb.findText(mapping_data['key_db'])
+        if idx >= 0:
+            self.comboKeyDb.setCurrentIndex(idx)
+
+        # Create mapping rows
+        for excel_col, db_col in mapping_data['column_mappings'].items():
+            row = MappingRow(self.excel_columns, self.db_columns, self)
+            row.btn_remove.clicked.connect(lambda checked, r=row: self._remove_mapping_row(r))
+            row.combo_excel.setCurrentText(excel_col)
+            row.combo_db.setCurrentText(db_col)
+            self.layoutMappings.addWidget(row)
+            self.mapping_rows.append(row)
+
+        self._update_ui_state()
+        self.labelStatus.setText(f"Mapping '{name}' loaded")
 
     def _get_column_mapping(self):
         """Get current column mapping as dictionary."""
@@ -317,13 +448,13 @@ class DataSyncDialog(QDialog, FORM_CLASS):
             # Update summary
             summary = self.sync_engine.get_change_summary(self.diff_data)
             self.labelSummary.setText(
-                f"<b>{summary['added']}</b> to add, "
                 f"<b>{summary['modified']}</b> to update, "
+                f"<b>{summary['skipped']}</b> skipped (not in DB), "
                 f"<b>{summary['unchanged']}</b> unchanged"
             )
 
             # Enable execute if there are changes
-            has_changes = summary['added'] > 0 or summary['modified'] > 0
+            has_changes = summary['modified'] > 0
             self.buttonBox.button(self.buttonBox.Ok).setEnabled(has_changes)
 
             self.progressBar.setVisible(False)
@@ -343,9 +474,8 @@ class DataSyncDialog(QDialog, FORM_CLASS):
         result = QMessageBox.question(
             self,
             "Confirm Sync",
-            f"This will:\n"
-            f"- Insert {summary['added']} new records\n"
-            f"- Update {summary['modified']} existing records\n\n"
+            f"This will update {summary['modified']} existing records.\n"
+            f"({summary['skipped']} rows skipped - not in DB)\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
         )

@@ -11,14 +11,15 @@ from qgis.PyQt.QtGui import QColor, QBrush
 UNCHANGED = 'UNCHANGED'
 ADDED = 'ADDED'
 MODIFIED = 'MODIFIED'
+SKIPPED = 'SKIPPED'
 
 
 class PreviewModel(QAbstractTableModel):
     """Table model for displaying sync diff preview with color coding."""
 
     # Colors for different change types
-    COLOR_ADDED = QColor(200, 255, 200)      # Light green
-    COLOR_MODIFIED = QColor(255, 220, 180)   # Light orange
+    COLOR_MODIFIED = QColor(200, 255, 200)   # Light GREEN for updates
+    COLOR_SKIPPED = QColor(255, 220, 180)    # Light ORANGE for skipped
     COLOR_UNCHANGED = QColor(255, 255, 255)  # White
 
     def __init__(self, parent=None):
@@ -47,15 +48,15 @@ class PreviewModel(QAbstractTableModel):
             if change_type == UNCHANGED:
                 continue  # Skip unchanged rows in preview
 
-            if change_type == ADDED:
-                # Show all columns for new rows
+            if change_type == SKIPPED:
+                # Show all columns for skipped rows (not in DB)
                 for col, value in item['excel_values'].items():
                     self._data.append({
                         'key': key_value,
                         'column': col,
                         'excel_value': value,
                         'db_value': None,
-                        'change_type': ADDED
+                        'change_type': SKIPPED
                     })
             elif change_type == MODIFIED:
                 # Show only changed columns
@@ -102,11 +103,13 @@ class PreviewModel(QAbstractTableModel):
             elif col == 3:
                 return str(item['db_value']) if item['db_value'] is not None else '(null)'
             elif col == 4:
-                return 'ADD' if item['change_type'] == ADDED else 'UPDATE'
+                if item['change_type'] == SKIPPED:
+                    return 'SKIP (not in DB)'
+                return 'UPDATE'
 
         elif role == Qt.BackgroundRole:
-            if item['change_type'] == ADDED:
-                return QBrush(self.COLOR_ADDED)
+            if item['change_type'] == SKIPPED:
+                return QBrush(self.COLOR_SKIPPED)
             elif item['change_type'] == MODIFIED:
                 return QBrush(self.COLOR_MODIFIED)
             return QBrush(self.COLOR_UNCHANGED)
@@ -130,19 +133,19 @@ class PreviewModel(QAbstractTableModel):
 
         :return: Dictionary with counts
         """
-        added_keys = set()
+        skipped_keys = set()
         modified_keys = set()
 
         for item in self._data:
-            if item['change_type'] == ADDED:
-                added_keys.add(item['key'])
+            if item['change_type'] == SKIPPED:
+                skipped_keys.add(item['key'])
             elif item['change_type'] == MODIFIED:
                 modified_keys.add(item['key'])
 
         return {
-            'added': len(added_keys),
+            'skipped': len(skipped_keys),
             'modified': len(modified_keys),
-            'total_changes': len(added_keys) + len(modified_keys)
+            'total_changes': len(modified_keys)
         }
 
     def clear(self):

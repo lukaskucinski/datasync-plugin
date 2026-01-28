@@ -9,6 +9,7 @@ from qgis.PyQt.QtCore import QObject, pyqtSignal
 UNCHANGED = 'UNCHANGED'
 ADDED = 'ADDED'
 MODIFIED = 'MODIFIED'
+SKIPPED = 'SKIPPED'
 
 
 class SyncEngine(QObject):
@@ -108,9 +109,9 @@ class SyncEngine(QObject):
                         'key_value': key_value
                     })
             else:
-                # New record
+                # Record doesn't exist in DB - skip (no insert allowed)
                 diff_data.append({
-                    'change_type': ADDED,
+                    'change_type': SKIPPED,
                     'key_value': key_value,
                     'excel_values': excel_values
                 })
@@ -141,14 +142,13 @@ class SyncEngine(QObject):
         if not conn:
             return False, "Not connected to database"
 
-        # Filter to only changes
-        changes = [d for d in diff_data if d['change_type'] in (ADDED, MODIFIED)]
+        # Filter to only updates (no inserts allowed)
+        changes = [d for d in diff_data if d['change_type'] == MODIFIED]
 
         if not changes:
             return True, "No changes to apply"
 
         cur = conn.cursor()
-        inserted = 0
         updated = 0
 
         try:
@@ -157,18 +157,15 @@ class SyncEngine(QObject):
             for i, item in enumerate(changes):
                 self.progress_changed.emit(i + 1, len(changes))
 
-                if item['change_type'] == ADDED:
-                    self._insert_record(cur, item)
-                    inserted += 1
-                elif item['change_type'] == MODIFIED:
+                if item['change_type'] == MODIFIED:
                     self._update_record(cur, item)
                     updated += 1
 
             # Commit transaction
             conn.commit()
             self.status_changed.emit("Sync complete")
-            self.sync_complete.emit(True, f"Success: {inserted} inserted, {updated} updated")
-            return True, f"Successfully applied changes: {inserted} inserted, {updated} updated"
+            self.sync_complete.emit(True, f"Success: {updated} updated")
+            return True, f"Successfully applied changes: {updated} updated"
 
         except Exception as e:
             # Rollback on any error
@@ -180,24 +177,6 @@ class SyncEngine(QObject):
 
         finally:
             cur.close()
-
-    def _insert_record(self, cursor, item):
-        """Insert a new record into the database.
-
-        :param cursor: Database cursor
-        :param item: Diff item with change_type ADDED
-        """
-        # Build column list including key
-        columns = [self.key_column_db] + list(item['excel_values'].keys())
-        values = [item['key_value']] + list(item['excel_values'].values())
-
-        # Build parameterized query
-        col_sql = ', '.join([f'"{c}"' for c in columns])
-        placeholders = ', '.join(['%s'] * len(values))
-        table_sql = f'"{self.schema}"."{self.table}"'
-
-        sql = f"INSERT INTO {table_sql} ({col_sql}) VALUES ({placeholders})"
-        cursor.execute(sql, values)
 
     def _update_record(self, cursor, item):
         """Update an existing record in the database.
@@ -229,14 +208,14 @@ class SyncEngine(QObject):
         :return: Dictionary with counts
         """
         counts = {
-            'added': 0,
+            'skipped': 0,
             'modified': 0,
             'unchanged': 0
         }
 
         for item in diff_data:
-            if item['change_type'] == ADDED:
-                counts['added'] += 1
+            if item['change_type'] == SKIPPED:
+                counts['skipped'] += 1
             elif item['change_type'] == MODIFIED:
                 counts['modified'] += 1
             else:
