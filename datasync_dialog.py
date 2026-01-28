@@ -8,8 +8,8 @@ from qgis.PyQt import uic
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QDialog, QFileDialog, QMessageBox, QWidget,
-    QHBoxLayout, QComboBox, QPushButton, QSizePolicy,
-    QCompleter, QInputDialog
+    QHBoxLayout, QVBoxLayout, QComboBox, QPushButton, QSizePolicy,
+    QCompleter, QInputDialog, QTableView
 )
 
 from .connection_manager import ConnectionManager
@@ -21,6 +21,24 @@ from .mapping_store import MappingStore
 # Load UI file
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'ui', 'datasync_dialog.ui'))
+
+
+class PreviewDialog(QDialog):
+    """Pop-out dialog for full-screen preview."""
+
+    def __init__(self, model, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("DataSync Preview")
+        self.resize(1000, 600)
+
+        layout = QVBoxLayout(self)
+        self.table = QTableView()
+        self.table.setModel(model)
+        self.table.setAlternatingRowColors(True)
+        layout.addWidget(self.table)
+
+        # Resize columns to content
+        self.table.resizeColumnsToContents()
 
 
 class MappingRow(QWidget):
@@ -112,7 +130,9 @@ class DataSyncDialog(QDialog, FORM_CLASS):
         self.btnAddMapping.clicked.connect(self._add_mapping_row)
         self.btnSaveMapping.clicked.connect(self._save_mapping)
         self.btnLoadMapping.clicked.connect(self._load_mapping)
+        self.btnDeleteMapping.clicked.connect(self._delete_mapping)
         self.btnPreview.clicked.connect(self._generate_preview)
+        self.btnPopout.clicked.connect(self._popout_preview)
         self.buttonBox.accepted.connect(self._execute_sync)
 
     def _load_connections(self):
@@ -386,6 +406,38 @@ class DataSyncDialog(QDialog, FORM_CLASS):
 
         self._update_ui_state()
         self.labelStatus.setText(f"Mapping '{name}' loaded")
+
+    def _delete_mapping(self):
+        """Delete a saved mapping."""
+        all_mappings = self.mapping_store.list_all()
+
+        if not all_mappings:
+            QMessageBox.information(self, "No Mappings", "No saved mappings to delete")
+            return
+
+        name, ok = QInputDialog.getItem(
+            self, "Delete Mapping", "Select mapping to delete:",
+            all_mappings, 0, False
+        )
+
+        if ok and name:
+            confirm = QMessageBox.question(
+                self, "Confirm Delete",
+                f"Delete mapping '{name}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if confirm == QMessageBox.Yes:
+                self.mapping_store.delete_mapping(name)
+                self.labelStatus.setText(f"Mapping '{name}' deleted")
+
+    def _popout_preview(self):
+        """Open preview in a pop-out window."""
+        if not self.diff_data:
+            QMessageBox.warning(self, "Warning", "Generate a preview first")
+            return
+
+        dialog = PreviewDialog(self.preview_model, self)
+        dialog.exec_()
 
     def _get_column_mapping(self):
         """Get current column mapping as dictionary."""

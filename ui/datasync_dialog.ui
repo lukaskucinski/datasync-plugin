@@ -209,6 +209,13 @@
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="btnDeleteMapping">
+          <property name="text">
+           <string>Delete Mapping</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <spacer name="horizontalSpacer_2">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
@@ -238,6 +245,13 @@
          <widget class="QPushButton" name="btnPreview">
           <property name="text">
            <string>Generate Preview</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnPopout">
+          <property name="text">
+           <string>Pop-out</string>
           </property>
          </widget>
         </item>
